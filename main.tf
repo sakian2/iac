@@ -9,15 +9,6 @@ variable "subnet_prefix" {
 
 }
 
-
-
-resource "aws_vpc" "prod-vpc" {
-  cidr_block = "10.0.0.0/16"
-  tags = {
-    Name = "production"
-  }
-}
-
 resource "aws_subnet" "subnet-1" {
   vpc_id            = aws_vpc.prod-vpc.id
   cidr_block        = var.subnet_prefix[0].cidr_block
@@ -39,7 +30,7 @@ resource "aws_subnet" "subnet-2" {
 }
 
 
-# 1. Create vpc
+# vpc for web server
 
 resource "aws_vpc" "prod-vpc" {
   cidr_block = "10.0.0.0/16"
@@ -48,14 +39,14 @@ resource "aws_vpc" "prod-vpc" {
   }
 }
 
-# 2. Create Internet Gateway
+# Internet Gateway for the WebServer
 
 resource "aws_internet_gateway" "gw" {
   vpc_id = aws_vpc.prod-vpc.id
 
 
 }
-# 3. Create Custom Route Table
+# Route Table (Custom for the production vpc)
 
 resource "aws_route_table" "prod-route-table" {
   vpc_id = aws_vpc.prod-vpc.id
@@ -75,7 +66,7 @@ resource "aws_route_table" "prod-route-table" {
   }
 }
 
-# 4. Create a Subnet 
+# Subnet for the App/DB/Monitoring/New Relic
 
 resource "aws_subnet" "subnet-1" {
   vpc_id            = aws_vpc.prod-vpc.id
@@ -87,12 +78,12 @@ resource "aws_subnet" "subnet-1" {
   }
 }
 
-# 5. Associate subnet with Route Table
+# Subnet Association with Route Table
 resource "aws_route_table_association" "a" {
   subnet_id      = aws_subnet.subnet-1.id
   route_table_id = aws_route_table.prod-route-table.id
 }
-# 6. Create Security Group to allow port 22,80,443
+#Security Group (Remote SSH/RDP) port 22,80,443,3389
 resource "aws_security_group" "allow_web" {
   name        = "allow_web_traffic"
   description = "Allow Web inbound traffic"
@@ -102,6 +93,13 @@ resource "aws_security_group" "allow_web" {
     description = "HTTPS"
     from_port   = 443
     to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+    ingress {
+    description = "HTTPS"
+    from_port   = 3389
+    to_port     = 3389
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -132,15 +130,15 @@ resource "aws_security_group" "allow_web" {
   }
 }
 
-# 7. Create a network interface with an ip in the subnet that was created in step 4
+# network interface for subnet 1
 
-resource "aws_network_interface" "web-server-nic" {
+resource "aws_network_interface" "web server" {
   subnet_id       = aws_subnet.subnet-1.id
   private_ips     = ["10.0.1.50"]
   security_groups = [aws_security_group.allow_web.id]
 
 }
-# 8. Assign an elastic IP to the network interface created in step 7
+# Public ip assign for network interface (Web Server)
 
 resource "aws_eip" "one" {
   vpc                       = true
@@ -153,7 +151,7 @@ output "server_public_ip" {
   value = aws_eip.one.public_ip
 }
 
-# 9. Create Ubuntu server and install/enable apache2
+# Create web server with apache/Tomcat [1]
 
 resource "aws_instance" "web-server-instance" {
   ami               = "ami-085925f297f89fce1"
@@ -169,16 +167,39 @@ resource "aws_instance" "web-server-instance" {
   user_data = <<-EOF
                 #!/bin/bash
                 sudo apt update -y
-                sudo apt install apache2 -y
-                sudo systemctl start apache2
-                sudo bash -c 'echo your very first web server > /var/www/html/index.html'
+                sudo apt install tomcat -y
+                sudo systemctl start tomcat
+                sudo bash -c 'echo HIS WEB SERVER > /var/www/html/index.html'
                 EOF
   tags = {
     Name = "web-server"
   }
 }
 
+# Create APP server [2]
 
+resource "aws_instance" "app-server-instance" {
+  ami               = "ami-085925f297f89fce1"
+  instance_type     = "t2.micro"
+  availability_zone = "us-east-1a"
+  key_name          = "main-key"
+
+  network_interface {
+    device_index         = 0
+    network_interface_id = aws_network_interface.web-server-nic.id
+  }
+
+  user_data = <<-EOF
+                #!/bin/bash
+                sudo apt update -y
+                sudo apt install tomcat -y
+                sudo systemctl start tomcat
+                sudo bash -c 'echo HIS WEB SERVER > /var/www/html/index.html'
+                EOF
+  tags = {
+    Name = "App-server"
+  }
+}
 
 output "server_private_ip" {
   value = aws_instance.web-server-instance.private_ip
@@ -189,9 +210,86 @@ output "server_id" {
   value = aws_instance.web-server-instance.id
 }
 
+# Create Database instance [3]
 
-resource "<provider>_<resource_type>" "name" {
-    config options.....
-    key = "value"
-    key2 = "another value"
+resource "aws_instance" "db-server-instance" {
+  ami               = "ami-085925f297f89fce1"
+  instance_type     = "t2.micro"
+  availability_zone = "us-east-1a"
+  key_name          = "main-key"
+
+  network_interface {
+    device_index         = 0
+    network_interface_id = aws_network_interface.web-server-nic.id
+  }
+
+  user_data = <<-EOF
+                #!/bin/bash
+                sudo apt update -y
+                sudo apt install tomcat -y
+                sudo systemctl start tomcat
+                sudo bash -c 'echo HIS WEB SERVER > /var/www/html/index.html'
+                EOF
+  tags = {
+    Name = "web-server"
+  }
+}
+
+# Create API instance [4]
+
+resource "aws_instance" "api-server-instance" {
+  ami               = "ami-085925f297f89fce1"
+  instance_type     = "t2.micro"
+  availability_zone = "us-east-1a"
+  key_name          = "main-key"
+
+  network_interface {
+    device_index         = 0
+    network_interface_id = aws_network_interface.web-server-nic.id
+  }
+
+  user_data = <<-EOF
+                #!/bin/bash
+                sudo apt update -y
+                sudo apt install tomcat -y
+                sudo systemctl start tomcat
+                sudo bash -c 'echo HIS WEB SERVER > /var/www/html/index.html'
+                EOF
+  tags = {
+    Name = "App-server"
+  }
+}
+
+output "server_private_ip" {
+  value = aws_instance.web-server-instance.private_ip
+
+}
+
+output "server_id" {
+  value = aws_instance.web-server-instance.id
+}
+
+# Create Monitoring/logging Instance(New Relic) [5]
+
+resource "aws_instance" "logging-server-instance" {
+  ami               = "ami-085925f297f89fce1"
+  instance_type     = "t2.micro"
+  availability_zone = "us-east-1a"
+  key_name          = "main-key"
+
+  network_interface {
+    device_index         = 0
+    network_interface_id = aws_network_interface.web-server-nic.id
+  }
+
+  user_data = <<-EOF
+                #!/bin/bash
+                sudo apt update -y
+                sudo apt install tomcat -y
+                sudo systemctl start tomcat
+                sudo bash -c 'echo HIS WEB SERVER > /var/www/html/index.html'
+                EOF
+  tags = {
+    Name = "web-server"
+  }
 }
