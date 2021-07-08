@@ -189,13 +189,36 @@ resource "aws_instance" "app-server-instance" {
     network_interface_id = aws_network_interface.web-server-nic.id
   }
 
-  user_data = <<-EOF
-                #!/bin/bash
-                sudo apt update -y
-                sudo apt install tomcat -y
-                sudo systemctl start tomcat
-                sudo bash -c 'echo HIS WEB SERVER > /var/www/html/index.html'
-                EOF
+   
+  provisioner "file" {
+    source      = "playbook.yaml"
+    destination = "/tmp/playbook.yaml"
+
+ }
+
+ 
+  provisioner "remote-exec" {
+    inline = [
+      "sudo amazon-linux-extras install  ansible2 -y",
+      "sleep 10s",
+      "sudo ansible-playbook -i localhost /tmp/playbook.yaml",
+      "sudo chmod 657 /var/www/html"
+    ]
+    
+  }
+
+#    provisioner "file" {
+#     source      = "index.html"
+#     destination = "/var/www/html/index.html"
+
+#  }
+  # user_data = <<-EOF
+  #               #!/bin/bash
+  #               sudo apt update -y
+  #               sudo apt install tomcat -y
+  #               sudo systemctl start tomcat
+  #               sudo bash -c 'echo HIS WEB SERVER > /var/www/html/index.html'
+  #               EOF
   tags = {
     Name = "App-server"
   }
